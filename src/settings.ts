@@ -212,6 +212,10 @@ const TOGGLE_SHORTCUT_PREF = `${BASE}.interaction.toggleShortcut`;
 const DISPLAY_SHORTCUT_ENABLED_PREF = `${BASE}.interaction.displayShortcutEnabled`;
 const DISPLAY_SHORTCUT_PREF = `${BASE}.interaction.displayShortcut`;
 const AUTO_TRANSLATE_ON_OPEN_PREF = `${BASE}.interaction.autoTranslateOnOpen`;
+const SELECTION_MENU_PREF = `${BASE}.interaction.selectionMenu`;
+const SNIPPET_DESTINATION_PREF = `${BASE}.notes.destination`;
+const EXPORT_FOLDER_PREF = `${BASE}.notes.exportFolder`;
+const EXPORT_FILENAME_PREF = `${BASE}.notes.filenameTemplate`;
 const APPEARANCE_V2_PREF = `${BASE}.appearance.v2`;
 const APPEARANCE_SCHEMA_PREF = `${BASE}.appearance.schema`;
 const APPEARANCE_SCHEMA_VERSION = 3;
@@ -722,6 +726,62 @@ export function setAutoTranslateOnOpen(value: string): void {
     AUTO_TRANSLATE_ON_OPEN_PREF,
     value === "cached" || value === "always" ? value : "off",
   );
+}
+
+export const SELECTION_MENU_MODES = ["combined", "translate", "ai"] as const;
+export type SelectionMenuMode = (typeof SELECTION_MENU_MODES)[number];
+export const DEFAULT_SELECTION_MENU_MODE: SelectionMenuMode = "combined";
+export const SNIPPET_DESTINATIONS = ["note", "annotation", "both"] as const;
+export type SnippetDestination = (typeof SNIPPET_DESTINATIONS)[number];
+export const DEFAULT_SNIPPET_DESTINATION: SnippetDestination = "both";
+export const DEFAULT_EXPORT_FILENAME_TEMPLATE = "{{citekey}}.md";
+
+export function getSelectionMenuMode(): SelectionMenuMode {
+  const value = getRawStringPref(SELECTION_MENU_PREF);
+  return (SELECTION_MENU_MODES as readonly string[]).includes(value)
+    ? (value as SelectionMenuMode)
+    : DEFAULT_SELECTION_MENU_MODE;
+}
+
+export function setSelectionMenuMode(value: string): void {
+  setStringPref(
+    SELECTION_MENU_PREF,
+    (SELECTION_MENU_MODES as readonly string[]).includes(value)
+      ? value
+      : DEFAULT_SELECTION_MENU_MODE,
+  );
+}
+
+export function getSnippetDestination(): SnippetDestination {
+  const value = getRawStringPref(SNIPPET_DESTINATION_PREF);
+  return (SNIPPET_DESTINATIONS as readonly string[]).includes(value)
+    ? (value as SnippetDestination)
+    : DEFAULT_SNIPPET_DESTINATION;
+}
+
+export function setSnippetDestination(value: string): void {
+  setStringPref(
+    SNIPPET_DESTINATION_PREF,
+    (SNIPPET_DESTINATIONS as readonly string[]).includes(value)
+      ? value
+      : DEFAULT_SNIPPET_DESTINATION,
+  );
+}
+
+export function getExportFolder(): string {
+  return getRawStringPref(EXPORT_FOLDER_PREF).trim();
+}
+
+export function setExportFolder(value: string): void {
+  setStringPref(EXPORT_FOLDER_PREF, value.trim());
+}
+
+export function getExportFilenameTemplate(): string {
+  return getRawStringPref(EXPORT_FILENAME_PREF).trim() || DEFAULT_EXPORT_FILENAME_TEMPLATE;
+}
+
+export function setExportFilenameTemplate(value: string): void {
+  setStringPref(EXPORT_FILENAME_PREF, value.trim() || DEFAULT_EXPORT_FILENAME_TEMPLATE);
 }
 
 export function getShortcutEnabled(): boolean {

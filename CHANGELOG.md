@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The pre-Interlinear history of the fork lives in the Git history and is not
 reproduced here.
 
+## [0.9.0] - 2026-11-14
+
+### Added
+
+- Save a translated paragraph, in one click, as a Zotero child note and/or a PDF highlight whose comment is the translation. Saving the same paragraph again updates that note or highlight.
+- Export the current item's saved bilingual snippets and AI explanations to an Obsidian-friendly Markdown file. YAML frontmatter includes title, authors, year, DOI, citekey, a `zotero://select` link, and tags. Each snippet has its page and a `zotero://open-pdf` link. Exporting again overwrites the same file.
+- Selection popup actions: Explain word, Explain sentence, and Ask AI, using the configured LLM. Answers appear in the popup and in the reading assistant. Each answer can be saved as a note or added to a local vocabulary list that exports as Anki-importable CSV.
+- A setting for the selection popup: translate only, translate plus the AI menu, or the AI menu with translate still available.
+
+### Security
+
+- Stopped publishing the `zotero-plugin-toolkit` protocol handlers. Version 5.1.0-beta.13 registered `zotero://plugin` (installs an add-on with no prompt) and `zotero://ztoolkit-debug` (runs script after a confirm) as a side effect of constructing `ZoteroToolkit`. This plugin never called them. Toolkit 6.0.0 removes the installer bridge and does not register the debug bridge unless a plugin opts in. Startup also deletes both keys if an older build left them in the process.
+
 ## [0.8.1] - 2026-11-12
 
 ### Fixed

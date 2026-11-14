@@ -19,6 +19,8 @@ Interlinear plugs into the desktop PDF reader's reading mode, fetches a translat
 - **Full-document runs that behave.** Progress and cancel from the toolbar, viewport-first ordering that re-sorts as you page, short-paragraph batching, concurrency and rate limits, timeouts, automatic pause after repeated failures, and click-to-retry on any failed paragraph.
 - **Glossary.** Import/export CSV or TSV term lists. Terms are injected into LLM prompts and enforced as a post-translation replacement on every service, including Google.
 - **Reading assistant.** A chat sidebar answers questions about the selected paragraph, the current page, or the whole document (LLM services only).
+- **Selection AI menu.** Selecting a word or sentence opens Explain word, Explain sentence, and Ask AI next to the existing Translate button. Answers show in the popup and in the reading-assistant sidebar. Each answer can be saved as a Zotero note or added to a local vocabulary list (CSV, Anki-importable). The popup mode is configurable; Translate stays one click away.
+- **Notes and Obsidian.** One click on a translated paragraph saves the source and the translation as a Zotero child note and/or a PDF highlight whose comment is the translation. Export writes every saved snippet and AI explanation for the current item to one Markdown file (YAML frontmatter, page number, `zotero://open-pdf` link). Exporting again overwrites that file.
 - **Bilingual PDF export.** The current source-plus-translation view is re-typeset into a searchable PDF and attached to the Zotero item.
 - **Appearance control with live preview.** Six built-in presets (Default, Eye-friendly paper, Academic serif, High contrast, Optimized dark, Minimal) apply in one click and can be undone. Includes a searchable installed-font list with favorites, a font-stack builder with up to six fallbacks, automatic per-language font stacks, a custom HSV color picker (hue/saturation/opacity/RGB/HSL/HEX), separate light/dark colors, recent and saved colors, text decoration (underline/overline/strikethrough with style/thickness/offset), paragraph dividers, ribbon position/width/style, block layout (padding/radius/border/indent/alignment/max width/opacity/source dimming), named presets, and JSON import/export.
 - **Caching.** Translations are cached per service, language pair, and glossary, with a one-click cleanup in settings.
@@ -77,7 +79,7 @@ Requires **Zotero 10 or 11 (desktop)**. See [Acknowledgements](#acknowledgements
 Open **Edit → Settings → Interlinear**. The page uses five tabs; the save bar and tab strip stay visible while you scroll, and modified fields show an unsaved-changes hint:
 
 - **Translation service** — pick a backend and fill in its endpoint, model, and API key; choose source and target languages. Each backend has a **Test connection** button that reports running, success, or the actual failure reason in place.
-- **Display & interaction** — default layout, Alt-click to translate a single paragraph, the single-paragraph shortcut, and optional show/hide and layout-cycle shortcuts with conflict warnings.
+- **Display & interaction** — default layout, Alt-click to translate a single paragraph, the single-paragraph shortcut, the selection popup (translate only, translate plus AI, or AI with translate still available), where bilingual snippets are saved, the Obsidian folder and filename template, and optional show/hide and layout-cycle shortcuts with conflict warnings.
 - **Appearance** — live preview, six built-in presets and named presets, installed-font detection and stack builder, color picker with per-theme values, text decoration, paragraph dividers, ribbon, block layout, interface-follow and export appearance. Advanced groups start collapsed.
 - **Glossary** — import/export term files.
 - **Advanced** — translation scope (body/headings/captions/list items/notes), skip trailing pages, speed and reliability knobs, auto-translate on open (off / cache only / always), translation cache usage and cleanup, plus version and project links.
@@ -118,8 +120,11 @@ If "Test connection" fails: check that your system proxy or TUN mode is running,
 1. Open a PDF in Zotero and switch to **reading mode**.
 2. Left-click the Interlinear toolbar icon to start a full-document run. Once translations exist, the same button hides them to show the original, and shows them again; if a run is in progress the first click pauses it, and a paused run resumes when translations are shown again. Right-click the icon for retranslate, cancel, export, and settings.
 3. The display-mode button next to it cycles the four layouts. Failed or paused paragraphs show a retry affordance — click it to retry just that paragraph.
-4. While reading, hold Alt and click a paragraph, use your shortcut, or select text to translate just that part. During a full run, these reuse in-flight requests instead of calling the service twice.
+4. While reading, hold Alt and click a paragraph, use your shortcut, or select text to translate just that part. During a full run, these reuse in-flight requests instead of calling the service twice. The selection popup can also explain the selection or take a free-form question. If the translation service is Google (or another non-LLM backend), those actions explain how to switch to an LLM in settings.
 5. Open the reading assistant from the reader sidebar to ask questions about the selection, the current page, or the whole document; export the bilingual view as a PDF attachment from the toolbar menu.
+6. On a translated paragraph, click **+** (on the translation block, or beside the source paragraph) to save the source and the translation. Right-click the translation block for the same action. Settings choose a child note, a PDF highlight, or both. Saving the same paragraph again updates the existing note or highlight.
+7. Right-click the toolbar icon and choose **Export notes to Markdown…** after setting an Obsidian vault folder and a filename template under Display & interaction. The file's frontmatter includes title, authors, year, DOI, citekey (Better BibTeX, a `citationKey` field, or `Citation Key:` in Extra), a `zotero://select` link, and tags. Each snippet has its page and a `zotero://open-pdf` link. Export again to overwrite that file.
+8. From an AI answer, **Add to vocabulary** stores the word, the context sentence, the explanation, and the source item in the Zotero data directory (`interlinear-vocabulary.json`). **Export vocabulary CSV…** writes an Anki-importable CSV. In Anki, import the file and map Word and Explanation (or the other columns) onto your note type.
 
 ## Known limitations
 
@@ -129,6 +134,11 @@ If "Test connection" fails: check that your system proxy or TUN mode is running,
 - Scanned PDFs work only as well as Zotero's own text layer.
 - Export re-typesets the reading view; it does not overlay translations on the publisher's original PDF pages.
 - Default pair is English → Simplified Chinese; other pairs depend on the chosen service and model.
+- Explain / Ask AI need an LLM backend. Google Translate and the other free engines only translate.
+- AI answers follow the Zotero UI language when it is Chinese, and otherwise the target language (Simplified Chinese by default).
+- A saved highlight is anchored near the top of the paragraph's page. Reading mode does not expose the PDF text rectangles, so the highlight is a page marker; the comment is the translation and the quoted text is the source. The `zotero://open-pdf` link still opens that page.
+- Markdown export overwrites the file produced by the current filename template. Changing the template leaves the previous file on disk.
+- The vocabulary CSV is a table Anki can import. It is not a packaged Anki deck.
 
 ## Roadmap (planned)
 

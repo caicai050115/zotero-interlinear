@@ -60,6 +60,10 @@ declare namespace _ZoteroTypes {
       "interaction.displayShortcutEnabled": boolean;
       "interaction.displayShortcut": string;
       "interaction.autoTranslateOnOpen": string;
+      "interaction.selectionMenu": string;
+      "notes.destination": string;
+      "notes.exportFolder": string;
+      "notes.filenameTemplate": string;
     };
   }
 }

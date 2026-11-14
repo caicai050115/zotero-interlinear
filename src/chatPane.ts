@@ -11,11 +11,13 @@ import {
   toggleBilingualReading,
 } from "./bilingualReader";
 import { collectChatContext, type ChatScope } from "./chatContext";
-import { appendChatTurn, clearChatSession, getChatSession } from "./chatSession";
+import { appendChatTurn, clearChatSession, getChatSession, subscribeChatSession } from "./chatSession";
 import { getChatProvider } from "./providers";
 import { buildChatContextBlock } from "./providers/chatPrompts";
 import type { ChatTurn } from "./providers/chatProtocol";
 import { exportBilingualPDF } from "./readerUI";
+import { exportReaderItemMarkdown } from "./readingNotes";
+import { exportVocabularyFile } from "./vocabularyStore";
 import {
   getAppearance,
   getDisplayMode,
@@ -52,6 +54,8 @@ const CHAT_BODY_XHTML = `<html:div id="interlinear-chat-root" style="display:fle
 <html:button id="interlinear-action-refresh" type="button"></html:button>
 <html:button id="interlinear-action-cancel" type="button"></html:button>
 <html:button id="interlinear-action-export" type="button"></html:button>
+<html:button id="interlinear-action-export-notes" type="button"></html:button>
+<html:button id="interlinear-action-export-vocab" type="button"></html:button>
 <html:button id="interlinear-action-settings" type="button"></html:button>
 </html:div>
 <html:label style="display:flex;align-items:center;gap:6px;">
@@ -83,6 +87,17 @@ const CHAT_BODY_XHTML = `<html:div id="interlinear-chat-root" style="display:fle
 </html:div>`;
 
 let sectionKey: string | null = null;
+const chatBodies = new Set<HTMLElement>();
+
+subscribeChatSession((itemKey) => {
+  for (const body of chatBodies) {
+    if (!body.isConnected) {
+      chatBodies.delete(body);
+      continue;
+    }
+    if (body.dataset.interlinearChatItemKey === itemKey) renderSession(body, itemKey, true);
+  }
+});
 
 function getElement<T extends Element>(body: HTMLElement, selector: string): T | null {
   return (body.querySelector(selector) as T | null) || null;
@@ -184,6 +199,8 @@ function applyStaticLabels(body: HTMLElement): void {
     ["#interlinear-action-refresh", "toolbar-menu-refresh"],
     ["#interlinear-action-cancel", "toolbar-menu-cancel"],
     ["#interlinear-action-export", "toolbar-menu-export"],
+    ["#interlinear-action-export-notes", "toolbar-menu-export-notes"],
+    ["#interlinear-action-export-vocab", "toolbar-menu-export-vocab"],
     ["#interlinear-action-settings", "toolbar-menu-settings"],
   ];
   for (const [selector, key] of actionLabels) {
@@ -389,6 +406,18 @@ function bindBody(body: HTMLElement): void {
   bindActionButton(body, "#interlinear-action-export", (reader) => {
     void exportBilingualPDF(reader);
   });
+  getElement<HTMLButtonElement>(body, "#interlinear-action-export-notes")?.addEventListener(
+    "click",
+    () => {
+      void exportNotesFromPane(body);
+    },
+  );
+  getElement<HTMLButtonElement>(body, "#interlinear-action-export-vocab")?.addEventListener(
+    "click",
+    () => {
+      void exportVocabFromPane(body);
+    },
+  );
   bindActionButton(body, "#interlinear-action-settings", (reader) => {
     configureTranslation(reader);
   });
@@ -435,7 +464,55 @@ function applyChatAppearance(body: HTMLElement): void {
     resolveUiFontFamily(appearance, getTargetLanguage()) || "";
 }
 
+async function exportNotesFromPane(body: HTMLElement): Promise<void> {
+  const itemID = Number(body.dataset.interlinearChatItemId || 0);
+  try {
+    const result = await exportReaderItemMarkdown(itemID);
+    setStatus(
+      body,
+      getString("notes-export-done", {
+        args: { count: String(result.count), path: result.path },
+      }),
+    );
+  } catch (error: any) {
+    const code = error?.code;
+    setStatus(
+      body,
+      code === "NO_FOLDER"
+        ? getString("notes-export-no-folder")
+        : code === "EMPTY"
+          ? getString("notes-export-empty")
+          : getString("notes-export-failed", {
+              args: { detail: String(error?.message || error) },
+            }),
+    );
+  }
+}
+
+async function exportVocabFromPane(body: HTMLElement): Promise<void> {
+  try {
+    const result = await exportVocabularyFile(getString("vocab-export"));
+    if (!result) return;
+    setStatus(
+      body,
+      getString("vocab-export-done", {
+        args: { count: String(result.count), path: result.path },
+      }),
+    );
+  } catch (error: any) {
+    setStatus(
+      body,
+      error?.message === "EMPTY"
+        ? getString("vocab-export-empty")
+        : getString("vocab-export-failed", {
+            args: { detail: String(error?.message || error) },
+          }),
+    );
+  }
+}
+
 function renderChatSection(body: HTMLElement, item: Zotero.Item): void {
+  chatBodies.add(body);
   const itemKey = String(item.key || item.id || "");
   body.dataset.interlinearChatItemKey = itemKey;
   body.dataset.interlinearChatItemId = String(item.id || 0);

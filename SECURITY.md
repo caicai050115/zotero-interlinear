@@ -40,6 +40,15 @@ CI.
 - **Translations are cached locally** in Zotero preferences, keyed by service
   configuration and language pair. No library metadata is uploaded anywhere else.
 
+## Protocol handlers
+
+Interlinear 0.8.1 and earlier constructed `ZoteroToolkit` from `zotero-plugin-toolkit` 5.1.0-beta.13. That constructor registers two `zotero://` extensions even though this plugin never calls them:
+
+- `zotero://plugin/?action=install&url=...` installs an add-on from the URL with no confirmation.
+- `zotero://ztoolkit-debug/?run=...` evaluates the `run` parameter as script after a confirm dialog (or with no prompt if the debug-bridge password check is turned off).
+
+A web page that can open a `zotero://` link could trigger either handler while the plugin was loaded. Interlinear 0.9.0 depends on toolkit 6.0.0, which removes the installer and does not register the debug bridge unless `DebugBridge.register()` is called. This plugin does not call it. On startup and shutdown it also deletes both extension keys, so a previous build cannot leave them installed in the same process.
+
 ## Known limitations (not vulnerabilities)
 
 - Keys are bound to your OS user account. Copying a profile to another machine or

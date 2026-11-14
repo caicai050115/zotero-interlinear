@@ -51,3 +51,7 @@ pref("interaction.toggleShortcut", "Alt+Shift+T");
 pref("interaction.displayShortcutEnabled", false);
 pref("interaction.displayShortcut", "Alt+Shift+D");
 pref("interaction.autoTranslateOnOpen", "off");
+pref("interaction.selectionMenu", "combined");
+pref("notes.destination", "both");
+pref("notes.exportFolder", "");
+pref("notes.filenameTemplate", "{{citekey}}.md");
