@@ -58,6 +58,11 @@ import {
   getDisplayShortcut,
   getDisplayShortcutEnabled,
   getAutoTranslateOnOpen,
+  getSelectionMenuMode,
+  getSnippetDestination,
+  getExportFolder,
+  getExportFilenameTemplate,
+  DEFAULT_EXPORT_FILENAME_TEMPLATE,
   getMaxCharsPerRequest,
   getMaxBatchParagraphs,
   getMaxConcurrent,
@@ -116,6 +121,10 @@ import {
   setDisplayShortcut,
   setDisplayShortcutEnabled,
   setAutoTranslateOnOpen,
+  setSelectionMenuMode,
+  setSnippetDestination,
+  setExportFolder,
+  setExportFilenameTemplate,
   setMaxCharsPerRequest,
   setMaxBatchParagraphs,
   setMaxConcurrent,
@@ -233,6 +242,7 @@ import { version as addonVersion } from "../../package.json";
 import { logError, redactForDisplay } from "../utils/log";
 import { assessEndpoint } from "../utils/endpointSafety";
 import { SECRET_PREFS, clearSecret, getSecret, getSecretStatus, isKeystoreAvailable, setSecret, whenSecretsReady } from "../secrets";
+import { exportVocabularyFile } from "../vocabularyStore";
 
 const PROJECT_URL = "https://github.com/Muanyan-mjq/zotero-interlinear";
 
@@ -3663,6 +3673,23 @@ function fillAppearanceLabels(doc: Document): void {
     ["interlinear-shortcut-label", "interaction-shortcut-label"],
     ["interlinear-shortcut-help", "interaction-shortcut-help"],
     ["interlinear-interaction-help", "interaction-help"],
+    ["interlinear-selection-menu-label", "selection-menu-label"],
+    ["interlinear-selection-menu-combined", "selection-menu-combined"],
+    ["interlinear-selection-menu-translate", "selection-menu-translate"],
+    ["interlinear-selection-menu-ai", "selection-menu-ai"],
+    ["interlinear-selection-menu-help", "selection-menu-help"],
+    ["interlinear-notes-title", "notes-title"],
+    ["interlinear-notes-destination-label", "notes-destination-label"],
+    ["interlinear-notes-destination-both", "notes-destination-both"],
+    ["interlinear-notes-destination-note", "notes-destination-note"],
+    ["interlinear-notes-destination-annotation", "notes-destination-annotation"],
+    ["interlinear-notes-destination-help", "notes-destination-help"],
+    ["interlinear-notes-folder-label", "notes-folder-label"],
+    ["interlinear-notes-folder-browse", "notes-folder-browse"],
+    ["interlinear-notes-folder-help", "notes-folder-help"],
+    ["interlinear-notes-template-label", "notes-template-label"],
+    ["interlinear-notes-template-help", "notes-template-help"],
+    ["interlinear-vocab-export", "vocab-export"],
   ];
   for (const [id, key] of entries) {
     const element = getElement<HTMLElement>(doc, id);
@@ -4052,6 +4079,19 @@ function saveSettings(doc: Document): string[] {
   if (displayInput) displayInput.value = normalizedDisplay;
   setAutoTranslateOnOpen(
     getElement<HTMLSelectElement>(doc, "interlinear-auto-translate")?.value || "off",
+  );
+  setSelectionMenuMode(
+    getElement<HTMLSelectElement>(doc, "interlinear-selection-menu")?.value ||
+      getSelectionMenuMode(),
+  );
+  setSnippetDestination(
+    getElement<HTMLSelectElement>(doc, "interlinear-notes-destination")?.value ||
+      getSnippetDestination(),
+  );
+  setExportFolder(getElement<HTMLInputElement>(doc, "interlinear-notes-folder")?.value || "");
+  setExportFilenameTemplate(
+    getElement<HTMLInputElement>(doc, "interlinear-notes-template")?.value ||
+      DEFAULT_EXPORT_FILENAME_TEMPLATE,
   );
   updateShortcutConflict(doc);
   const conflict = getElement<HTMLElement>(
@@ -4610,6 +4650,10 @@ export async function registerPrefsScripts(window: Window): Promise<void> {
   );
   setFormValue(doc, "interlinear-display-shortcut", getDisplayShortcut());
   setFormValue(doc, "interlinear-auto-translate", getAutoTranslateOnOpen());
+  setFormValue(doc, "interlinear-selection-menu", getSelectionMenuMode());
+  setFormValue(doc, "interlinear-notes-destination", getSnippetDestination());
+  setFormValue(doc, "interlinear-notes-folder", getExportFolder());
+  setFormValue(doc, "interlinear-notes-template", getExportFilenameTemplate());
   getElement<HTMLSelectElement>(doc, "interlinear-auto-translate")?.addEventListener(
     "change",
     () => syncAutoTranslateWarning(doc),
@@ -4722,6 +4766,58 @@ export async function registerPrefsScripts(window: Window): Promise<void> {
     win?.setTimeout(() => applySecretState(doc), 800);
   };
 
+  getElement<HTMLButtonElement>(doc, "interlinear-notes-folder-browse")?.addEventListener(
+    "click",
+    () => {
+      void (async () => {
+        try {
+          const picked = await new ztoolkit.FilePicker(
+            getString("notes-folder-browse"),
+            "folder",
+          ).open();
+          if (!picked || typeof picked !== "string") return;
+          const input = getElement<HTMLInputElement>(doc, "interlinear-notes-folder");
+          if (input) input.value = picked;
+          markDirty(doc, input);
+        } catch (error: any) {
+          setSaveState(
+            doc,
+            "error",
+            getString("settings-status-error", {
+              args: { detail: String(error?.message || error) },
+            }),
+          );
+        }
+      })();
+    },
+  );
+  getElement<HTMLButtonElement>(doc, "interlinear-vocab-export")?.addEventListener("click", () => {
+    void (async () => {
+      try {
+        const result = await exportVocabularyFile(getString("vocab-export"));
+        if (!result) return;
+        setSaveState(
+          doc,
+          "success",
+          getString("vocab-export-done", {
+            args: { count: String(result.count), path: result.path },
+          }),
+          4000,
+        );
+      } catch (error: any) {
+        setSaveState(
+          doc,
+          "error",
+          error?.message === "EMPTY"
+            ? getString("vocab-export-empty")
+            : getString("vocab-export-failed", {
+                args: { detail: String(error?.message || error) },
+              }),
+          5000,
+        );
+      }
+    })();
+  });
   getElement<HTMLButtonElement>(doc, "interlinear-save")?.addEventListener("click", () => {
     const typedKeys = SECRET_FIELDS.map((field) => readSecretInput(doc, field)).filter(
       (value): value is string => typeof value === "string" && value.length > 0,

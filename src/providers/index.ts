@@ -153,11 +153,12 @@ export function getTranslationProvider(engine: TranslationEngine): TranslationPr
  * has no conversational API, so the sidebar reports it as unsupported instead
  * of guessing an endpoint.
  */
-export function getChatProvider(engine: TranslationEngine): ChatProvider | null {
+export function getChatProvider(
+  engine: TranslationEngine,
+  systemPrompt: () => string = () =>
+    buildChatSystemPrompt(languageNameZh(getTargetLanguage()), getGlossaryDirective()),
+): ChatProvider | null {
   if (engine === "google") return null;
-
-  const systemPrompt = () =>
-    buildChatSystemPrompt(languageNameZh(getTargetLanguage()), getGlossaryDirective());
 
   if (engine === "openai") {
     return {

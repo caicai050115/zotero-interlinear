@@ -9,6 +9,7 @@ import {
   getDisplayShortcut,
   getDisplayShortcutEnabled,
   getAutoTranslateOnOpen,
+  getSelectionMenuMode,
   getMaxBatchParagraphs,
   getMaxCharsPerRequest,
   getMaxConcurrent,
@@ -78,6 +79,14 @@ import {
   type ToggleTransition,
 } from "./readerToggle";
 import { whenSecretsReady } from "./secrets";
+import { exportReaderItemMarkdown, saveReadingRecord } from "./readingNotes";
+import {
+  answerSelection,
+  llmAvailable,
+  saveSelectionAnswer,
+  saveSelectionVocabulary,
+} from "./selectionActions";
+import { exportVocabularyFile } from "./vocabularyStore";
 import {
   getActiveSDTView,
   getInternalReader,
@@ -637,6 +646,40 @@ ${animation}
     .interlinear-selection-result[data-state="error"] {
       color: #b3261e;
     }
+    .interlinear-selection-ask-row,
+    .interlinear-selection-ai-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .interlinear-selection-question {
+      flex: 1 1 140px;
+      min-width: 0;
+      padding: 3px 6px;
+    }
+    .${TRANSLATION_CLASS} {
+      position: relative;
+    }
+    .interlinear-save-snippet {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid rgba(127, 127, 127, 0.45);
+      border-radius: 4px;
+      background: Canvas;
+      color: CanvasText;
+      cursor: pointer;
+    }
+    .interlinear-save-snippet::before {
+      content: "+";
+    }
+    .${TRANSLATION_CLASS}:not([data-state="done"]) .interlinear-save-snippet {
+      display: none;
+    }
     .interlinear-progress {
       margin-inline: 4px;
       font-size: 11px;
@@ -1172,8 +1215,57 @@ function ensureReaderInteractions(reader: any, doc: Document): void {
         dispatchToggle(reader, "shortcut");
         return translateReaderParagraph(reader, source, options);
       },
+      explainSelection: (kind, ctx) =>
+        answerSelection({
+          kind,
+          selection: ctx.text,
+          paragraph: ctx.paragraph,
+          pageLabel: ctx.pageLabel,
+          readerItemID: getReaderItem(reader).itemID,
+        }),
+      askSelection: (question, ctx) =>
+        answerSelection({
+          kind: "ask",
+          question,
+          selection: ctx.text,
+          paragraph: ctx.paragraph,
+          pageLabel: ctx.pageLabel,
+          readerItemID: getReaderItem(reader).itemID,
+        }),
+      saveAiResult: async (payload) => {
+        await saveSelectionAnswer(
+          {
+            kind: payload.kind,
+            selection: payload.selection,
+            paragraph: payload.paragraph,
+            pageLabel: payload.pageLabel,
+            question: payload.question,
+            readerItemID: getReaderItem(reader).itemID,
+          },
+          payload.answer,
+        );
+        notifySaved(reader, getString("selection-note-saved"));
+      },
+      saveVocabulary: async (payload) => {
+        await saveSelectionVocabulary(
+          {
+            kind: payload.kind,
+            selection: payload.selection,
+            paragraph: payload.paragraph,
+            pageLabel: payload.pageLabel,
+            question: payload.question,
+            readerItemID: getReaderItem(reader).itemID,
+          },
+          payload.answer,
+        );
+        notifySaved(reader, getString("selection-vocab-saved"));
+      },
+      saveSnippet: (source, block) => saveParagraphSnippet(reader, source, block),
+      llmAvailable: () => llmAvailable(),
+      openSettings: () => configureTranslation(reader),
     },
     {
+      getSelectionMenuMode: () => getSelectionMenuMode(),
       getShortcutSettings: () => ({
         enabled: getShortcutEnabled(),
         spec: getShortcutSpec(),
@@ -1514,6 +1606,7 @@ function setBlockState(
   if (!block) return;
   block.dataset.state = state;
   block.textContent = text;
+  if (state === "done") ensureSnippetSaveButton(block);
   if (state === "error" || state === "paused") {
     block.title = getString("paragraph-retry-title");
     block.setAttribute("role", "button");
@@ -1522,6 +1615,119 @@ function setBlockState(
     block.removeAttribute("title");
     block.removeAttribute("role");
     block.removeAttribute("tabindex");
+  }
+}
+
+function ensureSnippetSaveButton(block: HTMLElement): void {
+  const doc = block.ownerDocument;
+  if (!doc) return;
+  const button = doc.createElement("button");
+  button.type = "button";
+  button.className = "interlinear-save-snippet";
+  button.tabIndex = -1;
+  button.title = getString("snippet-save");
+  button.setAttribute("aria-label", getString("snippet-save"));
+  block.append(button);
+}
+
+function notifySaved(reader: any, message: string): void {
+  try {
+    new ztoolkit.ProgressWindow("Interlinear", { closeTime: 4000 })
+      .createLine({ text: message, progress: 100 })
+      .show();
+  } catch {
+    showError(reader, message);
+  }
+}
+
+function pageLabelOf(block: HTMLElement | null): string {
+  return block?.dataset.sourcePage || "";
+}
+
+async function saveParagraphSnippet(
+  reader: any,
+  source: HTMLElement,
+  block: HTMLElement | null,
+): Promise<void> {
+  const sourceText = (source.textContent || "").replace(/\s+/gu, " ").trim();
+  const translationBlock =
+    block?.classList?.contains(TRANSLATION_CLASS) ? block : null;
+  const translation =
+    translationBlock?.dataset.state === "done"
+      ? (translationBlock.textContent || "").replace(/\s+/gu, " ").trim()
+      : "";
+  if (!sourceText || !translation) {
+    showError(reader, getString("snippet-need-translation"));
+    return;
+  }
+  try {
+    const { itemID } = getReaderItem(reader);
+    await saveReadingRecord({
+      readerItemID: itemID,
+      kind: "snippet",
+      source: sourceText,
+      body: translation,
+      pageLabel: pageLabelOf(translationBlock),
+    });
+    notifySaved(reader, getString("snippet-saved"));
+  } catch (error: any) {
+    showError(
+      reader,
+      getString("snippet-save-failed", {
+        args: { detail: String(error?.message || error) },
+      }),
+    );
+  }
+}
+
+async function exportSavedNotes(reader: any): Promise<void> {
+  try {
+    const { itemID } = getReaderItem(reader);
+    const result = await exportReaderItemMarkdown(itemID);
+    notifySaved(
+      reader,
+      getString("notes-export-done", {
+        args: { count: String(result.count), path: result.path },
+      }),
+    );
+  } catch (error: any) {
+    const code = error?.code;
+    if (code === "NO_FOLDER") {
+      showError(reader, getString("notes-export-no-folder"));
+      return;
+    }
+    if (code === "EMPTY") {
+      showError(reader, getString("notes-export-empty"));
+      return;
+    }
+    showError(
+      reader,
+      getString("notes-export-failed", {
+        args: { detail: String(error?.message || error) },
+      }),
+    );
+  }
+}
+
+async function exportVocabulary(reader: any): Promise<void> {
+  try {
+    const result = await exportVocabularyFile(getString("vocab-export"));
+    if (!result) return;
+    notifySaved(
+      reader,
+      getString("vocab-export-done", {
+        args: { count: String(result.count), path: result.path },
+      }),
+    );
+  } catch (error: any) {
+    showError(
+      reader,
+      error?.message === "EMPTY"
+        ? getString("vocab-export-empty")
+        : getString("vocab-export-failed", {
+            args: { detail: String(error?.message || error) },
+          }),
+    );
   }
 }
 
@@ -2075,6 +2281,8 @@ function openBilingualToolbarMenu(
     },
     "separator",
     { action: "export", label: getString("toolbar-menu-export") },
+    { action: "export-notes", label: getString("toolbar-menu-export-notes") },
+    { action: "export-vocab", label: getString("toolbar-menu-export-vocab") },
     { action: "settings", label: getString("toolbar-menu-settings") },
   ];
 
@@ -2091,6 +2299,10 @@ function openBilingualToolbarMenu(
         cancelBilingualReading(reader);
       } else if (action === "export") {
         void exportBilingualPDF(reader);
+      } else if (action === "export-notes") {
+        void exportSavedNotes(reader);
+      } else if (action === "export-vocab") {
+        void exportVocabulary(reader);
       } else if (action === "settings") {
         configureTranslation(reader);
       }

@@ -1,3 +1,4 @@
+import { disarmToolkitProtocolHandlers } from "./protocolGuard";
 import { initLocale } from "./utils/locale";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerReaderToolbar, unregisterReaderToolbar } from "./readerToolbar";
@@ -39,6 +40,9 @@ function installPreferencesBrand(win: Window): void {
 }
 
 async function onStartup() {
+  // Remove toolkit protocol handlers before any window can navigate to them,
+  // including handlers left behind by an older build in this process.
+  disarmToolkitProtocolHandlers();
   await Promise.all([Zotero.initializationPromise, Zotero.unlockPromise]);
   if (!addon.data.alive) return;
 
@@ -74,6 +78,7 @@ async function onMainWindowLoad(_win: _ZoteroTypes.MainWindow): Promise<void> {
   // The toolkit is process-scoped. Replacing it for every main window would
   // orphan registrations owned by the previous instance.
   addon.data.ztoolkit ||= createZToolkit();
+  disarmToolkitProtocolHandlers();
 }
 
 async function onMainWindowUnload(_win: Window): Promise<void> {
@@ -81,6 +86,7 @@ async function onMainWindowUnload(_win: Window): Promise<void> {
 }
 
 function onShutdown(): void {
+  disarmToolkitProtocolHandlers();
   unregisterChatPane();
   unregisterReaderToolbar();
   cleanupAllReadingLayouts();

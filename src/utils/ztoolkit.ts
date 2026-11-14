@@ -1,4 +1,4 @@
-import { ZoteroToolkit } from "zotero-plugin-toolkit";
+import { ZoteroToolkit } from "zotero-plugin-toolkit/ztoolkit";
 import { config } from "../../package.json";
 
 export { createZToolkit };
@@ -15,10 +15,8 @@ function initZToolkit(_ztoolkit: ReturnType<typeof createZToolkit>) {
   _ztoolkit.basicOptions.log.disableConsole = env === "production";
   _ztoolkit.UI.basicOptions.ui.enableElementJSONLog = __env__ === "development";
   _ztoolkit.UI.basicOptions.ui.enableElementDOMLog = __env__ === "development";
-  // Getting basicOptions.debug will load global modules like the debug bridge.
-  // since we want to deprecate it, should avoid using it unless necessary.
-  // _ztoolkit.basicOptions.debug.disableDebugBridgePassword =
-  //   __env__ === "development";
+  // Leave the debug options object unread. Toolkit 6 does not publish the old
+  // protocol bridges unless a plugin opts in; hooks.ts still removes leftovers.
   _ztoolkit.basicOptions.api.pluginID = config.addonID;
   _ztoolkit.ProgressWindow.setIconURI(
     "default",

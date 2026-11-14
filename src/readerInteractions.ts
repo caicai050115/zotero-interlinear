@@ -20,9 +20,33 @@ interface SelectionLike {
   getRangeAt(index: number): Range;
 }
 
+export interface SelectionContext {
+  text: string;
+  paragraph: string;
+  pageLabel: string;
+}
+
+export type SelectionMenuMode = "combined" | "translate" | "ai";
+
+export interface AiResultPayload {
+  kind: "word" | "sentence" | "ask";
+  selection: string;
+  paragraph: string;
+  pageLabel: string;
+  answer: string;
+  question?: string;
+}
+
 export interface InteractionHost {
   translateSelection(text: string): Promise<string>;
   translateParagraph(source: HTMLElement, options?: { force?: boolean }): Promise<void>;
+  explainSelection?(kind: "word" | "sentence", ctx: SelectionContext): Promise<string>;
+  askSelection?(question: string, ctx: SelectionContext): Promise<string>;
+  saveAiResult?(payload: AiResultPayload): Promise<void>;
+  saveVocabulary?(payload: AiResultPayload): Promise<void>;
+  saveSnippet?(source: HTMLElement, block: HTMLElement | null): Promise<void>;
+  llmAvailable?(): boolean;
+  openSettings?(): void;
 }
 
 export interface InteractionOptions {
@@ -33,6 +57,8 @@ export interface InteractionOptions {
   getShortcutSettings?: () => { enabled: boolean; spec: ShortcutSpec | null };
   /** Width of the selection popup, read when it opens. */
   getPopupWidth?: () => number;
+  /** Read when the popup opens so a settings change applies immediately. */
+  getSelectionMenuMode?: () => SelectionMenuMode;
   getToggleShortcutSettings?: () => { enabled: boolean; spec: ShortcutSpec | null };
   getDisplayShortcutSettings?: () => { enabled: boolean; spec: ShortcutSpec | null };
   onToggleShortcut?: () => void;
@@ -76,14 +102,25 @@ function invokeParagraph(
   }
 }
 
+const SAVE_BUTTON_SELECTOR = ".interlinear-save-snippet, .interlinear-save-floating";
+
+function actionButton(doc: Document, className: string, labelKey: Parameters<typeof getString>[0]): HTMLButtonElement {
+  const button = doc.createElement("button") as HTMLButtonElement;
+  button.type = "button";
+  button.className = className;
+  button.textContent = getString(labelKey);
+  return button;
+}
+
 function createPopup(
   doc: Document,
   win: any,
   host: InteractionHost,
   getWidth: () => number,
+  getMenuMode: () => SelectionMenuMode,
 ): {
   root: HTMLDivElement;
-  show: (rect: DOMRect, text: string) => void;
+  show: (rect: DOMRect, text: string, context?: { paragraph: string; pageLabel: string }) => void;
   hide: () => void;
   contains: (target: EventTarget | null) => boolean;
 } {
@@ -99,6 +136,14 @@ function createPopup(
   translateButton.className = "interlinear-selection-translate";
   translateButton.textContent = getString("selection-translate-button");
 
+  const explainWord = actionButton(doc, "interlinear-selection-word", "selection-explain-word");
+  const explainSentence = actionButton(
+    doc,
+    "interlinear-selection-sentence",
+    "selection-explain-sentence",
+  );
+  const askButton = actionButton(doc, "interlinear-selection-ask", "selection-ask");
+
   const closeButton = doc.createElement("button") as HTMLButtonElement;
   closeButton.type = "button";
   closeButton.className = "interlinear-selection-close";
@@ -106,28 +151,88 @@ function createPopup(
   closeButton.title = getString("selection-close-title");
   closeButton.setAttribute("aria-label", getString("selection-close-title"));
 
+  const askRow = doc.createElement("div");
+  askRow.className = "interlinear-selection-ask-row";
+  askRow.hidden = true;
+  const askInput = doc.createElement("input") as HTMLInputElement;
+  askInput.type = "text";
+  askInput.className = "interlinear-selection-question";
+  askInput.placeholder = getString("selection-ask-placeholder");
+  const askSend = actionButton(doc, "interlinear-selection-ask-send", "selection-ask-send");
+  askRow.append(askInput, askSend);
+
   const result = doc.createElement("div") as HTMLDivElement;
   result.className = "interlinear-selection-result";
   result.hidden = true;
 
-  actions.append(translateButton, closeButton);
-  root.append(actions, result);
+  const aiActions = doc.createElement("div");
+  aiActions.className = "interlinear-selection-ai-actions";
+  aiActions.hidden = true;
+  const saveNote = actionButton(doc, "interlinear-selection-save-note", "selection-save-note");
+  const saveVocab = actionButton(doc, "interlinear-selection-save-vocab", "selection-save-vocab");
+  const openSettings = actionButton(doc, "interlinear-selection-settings", "selection-open-settings");
+  openSettings.hidden = true;
+  aiActions.append(saveNote, saveVocab);
+
+  actions.append(translateButton, explainWord, explainSentence, askButton, closeButton);
+  root.append(actions, askRow, result, aiActions, openSettings);
   root.addEventListener("mousedown", (event: Event) => event.stopPropagation());
   root.addEventListener("click", (event: Event) => event.stopPropagation());
 
   let pendingText = "";
+  let pendingParagraph = "";
+  let pendingPage = "";
+  let pendingAnswer = "";
+  let pendingKind: AiResultPayload["kind"] = "word";
+  let pendingQuestion = "";
   let busy = false;
+
+  const context = (): SelectionContext => ({
+    text: pendingText,
+    paragraph: pendingParagraph,
+    pageLabel: pendingPage,
+  });
+
+  const applyMode = () => {
+    const mode = getMenuMode();
+    const showAi = mode !== "translate";
+    explainWord.hidden = !showAi;
+    explainSentence.hidden = !showAi;
+    askButton.hidden = !showAi;
+    if (!showAi) askRow.hidden = true;
+  };
 
   const hide = () => {
     root.hidden = true;
     result.hidden = true;
     result.textContent = "";
     result.removeAttribute("data-state");
+    aiActions.hidden = true;
+    askRow.hidden = true;
+    openSettings.hidden = true;
+    pendingAnswer = "";
+  };
+
+  const showResult = (state: string, text: string) => {
+    result.hidden = false;
+    result.dataset.state = state;
+    result.textContent = text;
+  };
+
+  const showLlmNotice = () => {
+    showResult("error", getString("selection-llm-unavailable"));
+    openSettings.hidden = false;
+    aiActions.hidden = true;
   };
 
   closeButton.addEventListener("click", (event: Event) => {
     event.preventDefault();
     hide();
+  });
+
+  openSettings.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    host.openSettings?.();
   });
 
   translateButton.addEventListener("click", async (event: Event) => {
@@ -136,18 +241,19 @@ function createPopup(
     busy = true;
     translateButton.disabled = true;
     translateButton.textContent = getString("selection-translating");
-    result.hidden = false;
-    result.dataset.state = "loading";
-    result.textContent = getString("selection-translating");
+    aiActions.hidden = true;
+    openSettings.hidden = true;
+    showResult("loading", getString("selection-translating"));
     try {
       const translated = await host.translateSelection(pendingText);
-      result.dataset.state = "done";
-      result.textContent = translated;
+      showResult("done", translated);
     } catch (error: any) {
-      result.dataset.state = "error";
-      result.textContent = getString("selection-error", {
-        args: { detail: String(error?.message || error) },
-      });
+      showResult(
+        "error",
+        getString("selection-error", {
+          args: { detail: String(error?.message || error) },
+        }),
+      );
     } finally {
       busy = false;
       translateButton.disabled = false;
@@ -155,11 +261,110 @@ function createPopup(
     }
   });
 
-  const show = (rect: DOMRect, text: string) => {
+  const runAi = async (
+    kind: AiResultPayload["kind"],
+    run: () => Promise<string>,
+  ) => {
+    if (busy || !pendingText) return;
+    if (host.llmAvailable && !host.llmAvailable()) {
+      showLlmNotice();
+      return;
+    }
+    busy = true;
+    pendingKind = kind;
+    pendingAnswer = "";
+    aiActions.hidden = true;
+    openSettings.hidden = true;
+    showResult("loading", getString("selection-ai-working"));
+    try {
+      const answer = await run();
+      pendingAnswer = answer;
+      showResult("done", answer);
+      aiActions.hidden = false;
+    } catch (error: any) {
+      const detail = String(error?.message || error);
+      showResult(
+        "error",
+        detail === "LLM_UNAVAILABLE"
+          ? getString("selection-llm-unavailable")
+          : getString("selection-ai-failed", { args: { detail } }),
+      );
+      if (detail === "LLM_UNAVAILABLE") openSettings.hidden = false;
+    } finally {
+      busy = false;
+    }
+  };
+
+  explainWord.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    void runAi("word", () => host.explainSelection?.("word", context()) || Promise.reject(new Error("LLM_UNAVAILABLE")));
+  });
+  explainSentence.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    void runAi("sentence", () =>
+      host.explainSelection?.("sentence", context()) || Promise.reject(new Error("LLM_UNAVAILABLE")),
+    );
+  });
+  askButton.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    askRow.hidden = false;
+    askInput.focus();
+  });
+  const submitAsk = () => {
+    const question = askInput.value.trim();
+    if (!question) return;
+    pendingQuestion = question;
+    void runAi("ask", () =>
+      host.askSelection?.(question, context()) || Promise.reject(new Error("LLM_UNAVAILABLE")),
+    );
+  };
+  askSend.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    submitAsk();
+  });
+  askInput.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    submitAsk();
+  });
+
+  const payload = (): AiResultPayload => ({
+    kind: pendingKind,
+    selection: pendingText,
+    paragraph: pendingParagraph,
+    pageLabel: pendingPage,
+    answer: pendingAnswer,
+    question: pendingQuestion,
+  });
+  saveNote.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    if (!pendingAnswer) return;
+    void host.saveAiResult?.(payload());
+  });
+  saveVocab.addEventListener("click", (event: Event) => {
+    event.preventDefault();
+    if (!pendingAnswer) return;
+    void host.saveVocabulary?.(payload());
+  });
+
+  const show = (
+    rect: DOMRect,
+    text: string,
+    selection?: { paragraph: string; pageLabel: string },
+  ) => {
     pendingText = text;
+    pendingParagraph = selection?.paragraph || "";
+    pendingPage = selection?.pageLabel || "";
+    pendingAnswer = "";
+    pendingQuestion = "";
+    askInput.value = "";
     result.hidden = true;
     result.textContent = "";
     result.removeAttribute("data-state");
+    aiActions.hidden = true;
+    askRow.hidden = true;
+    openSettings.hidden = true;
+    applyMode();
     root.hidden = false;
 
     const viewportWidth = Number(win?.innerWidth) || 800;
@@ -244,6 +449,7 @@ export function attachReaderInteractions(
   let popup: ReturnType<typeof createPopup> | null = null;
 
   const getPopupWidth = options.getPopupWidth || (() => 380);
+  const getMenuMode = options.getSelectionMenuMode || (() => "combined" as SelectionMenuMode);
   const getShortcutSettings =
     options.getShortcutSettings ||
     (() => ({ enabled: true, spec: parseShortcut(DEFAULT_SHORTCUT) }));
@@ -279,10 +485,14 @@ export function attachReaderInteractions(
    */
   const onMouseMove = (event: MouseEvent) => {
     const source = findSource(event.target);
+    if (floatButton.contains(event.target as Node)) return;
     if (!event.altKey) {
       clearHover();
+      if (source) showFloat(source);
+      else hideFloat();
       return;
     }
+    hideFloat();
     if (hovered === source) return;
     clearHover();
     if (source) {
@@ -291,9 +501,15 @@ export function attachReaderInteractions(
     }
   };
 
-  const onMouseLeave = () => clearHover();
+  const onMouseLeave = () => {
+    clearHover();
+    hideFloat();
+  };
 
-  const onScroll = () => clearHover();
+  const onScroll = () => {
+    clearHover();
+    hideFloat();
+  };
 
   const onMouseUp = () => {
     schedule(() => {
@@ -316,8 +532,15 @@ export function attachReaderInteractions(
         hidePopup();
         return;
       }
-      popup ||= createPopup(doc, win, host, getPopupWidth);
-      popup.show(range.getBoundingClientRect(), text.slice(0, 8000));
+      popup ||= createPopup(doc, win, host, getPopupWidth, getMenuMode);
+      const source = findSource(range.startContainer) || findSource(range.commonAncestorContainer);
+      const block = source?.nextElementSibling as HTMLElement | null;
+      const pageLabel =
+        block?.classList?.contains(TRANSLATION_CLASS) ? block.dataset.sourcePage || "" : "";
+      popup.show(range.getBoundingClientRect(), text.slice(0, 8000), {
+        paragraph: (source?.textContent || "").replace(/\s+/gu, " ").trim(),
+        pageLabel,
+      });
     }, 0);
   };
 
@@ -378,8 +601,15 @@ export function attachReaderInteractions(
           label: getString("block-menu-copy-source"),
           disabled: !(source.textContent || "").trim(),
         },
+        ...(host.saveSnippet
+          ? [{ action: "save-snippet", label: getString("snippet-menu-save") }]
+          : []),
       ],
       onSelect: (action) => {
+        if (action === "save-snippet") {
+          void host.saveSnippet?.(source, block);
+          return;
+        }
         if (action === "retranslate") {
           invokeParagraph(host, source, { force: true });
           return;
@@ -399,7 +629,56 @@ export function attachReaderInteractions(
   const onContextMenu = (event: MouseEvent) => showBlockMenu(event);
   const onDoubleClick = (event: MouseEvent) => showBlockMenu(event);
 
+  const floatButton = doc.createElement("button") as HTMLButtonElement;
+  floatButton.type = "button";
+  floatButton.className = "interlinear-save-floating";
+  floatButton.hidden = true;
+  floatButton.tabIndex = -1;
+  floatButton.textContent = "+";
+  floatButton.setAttribute("aria-label", getString("snippet-save"));
+  floatButton.title = getString("snippet-save");
+  floatButton.style.cssText =
+    "position:fixed;z-index:2147482000;width:22px;height:22px;padding:0;border:1px solid rgba(127,127,127,0.45);" +
+    "border-radius:4px;background:Canvas;color:CanvasText;cursor:pointer;line-height:20px;";
+  (doc.body || doc.documentElement)?.append(floatButton);
+  let floatSource: HTMLElement | null = null;
+
+  const hideFloat = () => {
+    floatButton.hidden = true;
+    floatSource = null;
+  };
+  const showFloat = (source: HTMLElement) => {
+    if (!host.saveSnippet) return;
+    const rect = source.getBoundingClientRect?.();
+    if (!rect) return;
+    floatSource = source;
+    floatButton.hidden = false;
+    const left = Math.max(8, (rect.right || 0) - 28);
+    const top = Math.max(8, rect.top || 0);
+    floatButton.style.left = `${left}px`;
+    floatButton.style.top = `${top}px`;
+  };
+
+  const saveFrom = (source: HTMLElement | null) => {
+    if (!source || !host.saveSnippet) return;
+    const sibling = source.nextElementSibling as HTMLElement | null;
+    const block = sibling?.classList?.contains(TRANSLATION_CLASS) ? sibling : null;
+    void host.saveSnippet(source, block);
+  };
+
   const onClick = (event: MouseEvent) => {
+    const clicked = elementOf(event.target as Node | null);
+    if (clicked?.closest?.(SAVE_BUTTON_SELECTOR)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const inline = clicked.closest?.(`.${TRANSLATION_CLASS}`) as HTMLElement | null;
+      const source = inline
+        ? (inline.previousElementSibling as HTMLElement | null)
+        : floatSource;
+      saveFrom(source);
+      hideFloat();
+      return;
+    }
     if (retryIfRequested(event)) return;
     if (!event.altKey) return;
     const source = findSource(event.target);
@@ -492,6 +771,7 @@ export function attachReaderInteractions(
       clearHover();
       try {
         popup?.root.remove();
+        floatButton.remove();
       } catch (_) {
         // The iframe may already be gone.
       }
